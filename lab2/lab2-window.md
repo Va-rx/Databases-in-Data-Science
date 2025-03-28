@@ -441,15 +441,15 @@ from products;
 
 a. row_number()
 
-Przypisuje unikalny numer dla każdego rekordu na podstawie ustalonego sortowania danych za pomocą *order by*. W tym przypadku wartości *unitprice* są posortowane malejąco, a zatem wartości w kolumnie *rowno* są numerowane w tej kolejności poczynając od wartości 1. W przypadku wystąpienia identycznych wartości w kolumnie *unitprice*, nadanie zostanie mimo wszystko kolejny unikatowy identyfikator.
+Przypisuje unikalny numer dla każdego rekordu na podstawie ustalonego sortowania danych za pomocą _order by_. W tym przypadku wartości _unitprice_ są posortowane malejąco, a zatem wartości w kolumnie _rowno_ są numerowane w tej kolejności poczynając od wartości 1. W przypadku wystąpienia identycznych wartości w kolumnie _unitprice_, nadanie zostanie mimo wszystko kolejny unikatowy identyfikator.
 
 b. rank()
 
-Przypisuje numery bardzo podobnie do *row_number()*, a jedyną różnicą jest fakt, iż te wartości (rangi) mogą się powtarzać. Zachodzi to w przypadku, gdy wartości w kolumnie *unitprice* są identyczne w stosunku do poprzednich rekordów. 'Zduplikowanie' owych rang, powoduje że kolejna napotkana wartość *unitprice*, która jest unikalna - nie otrzyma kolejnej rangi + 1, a nastąpi 'przeskok' w numeracji.
+Przypisuje numery bardzo podobnie do _row_number()_, a jedyną różnicą jest fakt, iż te wartości (rangi) mogą się powtarzać. Zachodzi to w przypadku, gdy wartości w kolumnie _unitprice_ są identyczne w stosunku do poprzednich rekordów. 'Zduplikowanie' owych rang, powoduje że kolejna napotkana wartość _unitprice_, która jest unikalna - nie otrzyma kolejnej rangi + 1, a nastąpi 'przeskok' w numeracji.
 
 c. dense_rank()
 
-Przypisuje numery łącząc cechy zarówno funkcji *row_number()* jak i *rank()*. Wartości zduplikowane otrzymają te samą rangę, natomiast nie następuje już 'przeskok' po wystąpieniu powtarzających się wartości - a zawsze jest ranga inkrementowana o 1.
+Przypisuje numery łącząc cechy zarówno funkcji _row_number()_ jak i _rank()_. Wartości zduplikowane otrzymają te samą rangę, natomiast nie następuje już 'przeskok' po wystąpieniu powtarzających się wartości - a zawsze jest ranga inkrementowana o 1.
 
 ---
 
@@ -462,27 +462,27 @@ Spróbuj uzyskać ten sam wynik bez użycia funkcji okna
 > Wyniki:
 
 ```sql
-SELECT p1.productid, 
-       p1.productname, 
-       p1.unitprice, 
+SELECT p1.productid,
+       p1.productname,
+       p1.unitprice,
        p1.categoryid,
 
        -- row_number()
-       (SELECT COUNT(*) 
-        FROM products p2 
-        WHERE p2.categoryid = p1.categoryid 
+       (SELECT COUNT(*)
+        FROM products p2
+        WHERE p2.categoryid = p1.categoryid
           AND p2.unitprice > p1.unitprice) + 1 AS rowno,
 
        -- rank()
-       (SELECT COUNT(DISTINCT p2.unitprice) 
-        FROM products p2 
-        WHERE p2.categoryid = p1.categoryid 
+       (SELECT COUNT(DISTINCT p2.unitprice)
+        FROM products p2
+        WHERE p2.categoryid = p1.categoryid
           AND p2.unitprice > p1.unitprice) + 1 AS rankprice,
 
        -- dense_rank()
-       (SELECT COUNT(DISTINCT p2.unitprice) 
-        FROM products p2 
-        WHERE p2.categoryid = p1.categoryid 
+       (SELECT COUNT(DISTINCT p2.unitprice)
+        FROM products p2
+        WHERE p2.categoryid = p1.categoryid
           AND p2.unitprice >= p1.unitprice) AS denserankprice
 
 FROM products p1
@@ -626,11 +626,11 @@ order by date;
 
 ![w:700](img/5_result.png)
 
-a. *lag()*
+a. _lag()_
 
-Pobiera wartość z poprzedniego wiersza 
+Pobiera wartość z poprzedniego wiersza
 
-b. *lead()*
+b. _lead()_
 
 Pobiera wartość z następnego wiersza
 
@@ -914,9 +914,79 @@ Wykonaj kilka "własnych" przykładowych analiz. Czy są jeszcze jakieś ciekawe
 
 > Wyniki:
 
+1. #### `NTILE` - Dzieli wyniki na n równych przedziałów<br>
+
+   Podzielmy klientów na 4 grupy (kwarty) w zależności od wartości, jaką wydali na zamówienia w ciągu całego roku. Każdy klient zostanie przypisany do jednej z grup na podstawie sumy wydanych pieniędzy.
+
 ```sql
---  ...
+WITH CustomerSales AS (
+    SELECT
+        o.customerid,
+        SUM(od.unitprice * od.quantity) AS totalSpent
+    FROM orderdetails od
+    JOIN Orders o ON od.orderid = o.orderid
+    GROUP BY o.customerid
+),
+Quartiles AS (
+    SELECT
+        customerid,
+        TotalSpent,
+        NTILE(4) OVER (ORDER BY TotalSpent DESC) AS spendingQuartile
+    FROM CustomerSales
+)
+SELECT
+    q.customerid,
+    q.totalSpent,
+    q.spendingQuartile,
+    MIN(q.TotalSpent) OVER (PARTITION BY q.spendingQuartile) AS minInQuartile,
+    MAX(q.TotalSpent) OVER (PARTITION BY q.spendingQuartile) AS maxInQuartile
+FROM Quartiles q;
 ```
+
+![w:700](img/10_1.png)
+
+2. #### `CUME_DIST` - Skumulowana dystrybucja (procent wartości ≤ danej wartości)
+
+Obliczmy procentową dystrybucję klientów na podstawie sumy wydanych pieniędzy w zamówieniach. Dla każdego klienta będziemy wyświetlać, jaką część wszystkich klientów stanowią ci, którzy wydali mniej lub równiej niż oni.
+
+```sql
+WITH CustomerOrders AS (
+    SELECT
+        o.customerid,
+        SUM(od.unitPrice * od.quantity) AS totalSpent
+    FROM orderdetails od
+    JOIN Orders o ON od.orderid = o.orderid
+    GROUP BY o.customerid
+)
+SELECT
+    customerid,
+    totalSpent,
+    PERCENT_RANK() OVER (ORDER BY totalSpent DESC) AS percentRank
+FROM CustomerOrders;
+```
+
+![w:700](img/10_2.png)
+
+3. Porównanie miesięcznej sprzedaży do średniej ruchomej
+
+```sql
+WITH MonthlySales AS (
+    SELECT
+        TO_CHAR(o.OrderDate, 'YYYY-MM') AS OrderMonth,
+        SUM(od.UnitPrice * od.Quantity) AS TotalSales
+    FROM orderdetails od
+    JOIN Orders o ON od.OrderID = o.OrderID
+    GROUP BY TO_CHAR(o.OrderDate, 'YYYY-MM')
+)
+SELECT
+    OrderMonth,
+    TotalSales,
+    AVG(TotalSales) OVER (ORDER BY OrderMonth ROWS
+     BETWEEN 2 PRECEDING AND CURRENT ROW) AS RollingAvgSales
+FROM MonthlySales;
+```
+
+![w:700](img/10_3.png)
 
 ---
 
